@@ -65,7 +65,6 @@ class Player(pygame.sprite.Sprite):
         self.rect.x = x
         self.rect.y = y           
 
-    
     def draw(self, scrollX):
         screen.blit(self.image, (self.rect.x - scrollX, self.rect.y - scrollY, self.rect.width, self.rect.height))
     
@@ -122,7 +121,7 @@ class Enemy(pygame.sprite.Sprite):
             self.image = self.idleAnimation[self.idleCount % len(self.idleAnimation)]
         
 
-class Slime(Enemy):
+class Skeleton(Enemy):
     def __init__(self, x, y):
         super().__init__()
         self.width = 16
@@ -130,8 +129,8 @@ class Slime(Enemy):
         self.idleAnimation = self.getIdleAnimation(self.width, self.height)
         self.image = self.idleAnimation[0]
         self.rect = self.image.get_rect()
-        self.rect.x = x
-        self.rect.y = y
+        self.rect.x = x * 75
+        self.rect.y = y * 75
     
     def getIdleAnimation(self, width, height):
         temp = []
@@ -149,8 +148,8 @@ class Zombie(Enemy):
         self.idleAnimation = self.getIdleAnimation()
         self.image = self.idleAnimation[0]
         self.rect = self.image.get_rect()
-        self.rect.x = x
-        self.rect.y = y
+        self.rect.x = x * 75
+        self.rect.y = y * 75
     
     def getIdleAnimation(self):
         temp = []
@@ -197,7 +196,6 @@ class Bullet(pygame.sprite.Sprite):
 #   | |  | || |   |  _| \___ \ 
 #   | |  | || |___| |___ ___) |
 #   |_| |___|_____|_____|____/ 
-
 class Tile(pygame.sprite.Sprite):
     def __init__(self, x, y, blockPath):
         super().__init__()
@@ -269,7 +267,7 @@ class GameMap(object):
         self.maxRoomSize = 14
         self.minRoomSize = 8
         self.map = []
-        self.generate(50, 50)
+        self.rooms = self.generate(50, 50)
         self.startingPoint
     
     def generate(self, width, height):
@@ -316,6 +314,7 @@ class GameMap(object):
 
         self.startingPoint = rooms[0].x + rooms[0].width // 2, rooms[0].y + rooms[0].height // 2
         print(f"Number of Rooms: {len(rooms)}")
+        return rooms
 
     def createRoom(self, room):
         for i in range(room.width):
@@ -408,6 +407,17 @@ def createMap(player, all_Tiles, all_Walls):
     scrollX , scrollY = 0, 0
     return gameMap, scrollX, scrollY
 
+def generateEnemies():
+    for room in gameMap.rooms:
+        temp = pygame.Rect(room.x + 1, room.y + 1, room.width -4, room.height - 4)
+        for i in range(3):
+            if random.randint(0,1) == 0:
+                all_Sprites.add(Zombie(random.randint(temp.y, temp.y - 1 + temp.height),
+                                random.randint(temp.x, temp.x - 1 + temp.width)))
+            else:
+                all_Sprites.add(Skeleton(random.randint(temp.y, temp.y - 1 + temp.height),
+                                random.randint(temp.x, temp.x - 1 + temp.width)))
+
 #   ____    _    __  __ _____   _     ___   ___  ____  
 #  / ___|  / \  |  \/  | ____| | |   / _ \ / _ \|  _ \ 
 # | |  _  / _ \ | |\/| |  _|   | |  | | | | | | | |_) |
@@ -418,8 +428,9 @@ gameMap = GameMap()
 all_Tiles, all_Walls = gameMap.getGroup()
 playerX, playerY = gameMap.startingPoint
 player = Player (playerY * 75, playerX * 75, 60, 64)
-slime = Zombie(playerY * 75, playerX * 75)
+slime = Zombie(playerY, playerX)
 all_Sprites.add(slime)
+generateEnemies()
 print(all_Walls) 
 
 while run:
@@ -440,7 +451,13 @@ while run:
     elif keys[pygame.K_s]:
         player.move(0, 5)
     elif keys[pygame.K_r]:
-        gameMap, scrollX, scrollY = createMap(player, all_Tiles, all_Walls)
+        gameMap = GameMap()
+        playerX, playerY = gameMap.startingPoint
+        player.move(playerY , playerX)
+        all_Tiles, all_Walls = gameMap.getGroup()
+        all_Sprites.empty()
+        generateEnemies()
+       # scrollX, scrollY = 0, 0
     scrollX, scrollY = checkScroll(player, screenWidth, screenHeight, scrollMargin, scrollX, scrollY)
 
     #bullet collision 
