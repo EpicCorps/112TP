@@ -1,0 +1,461 @@
+import pygame, random
+import Sprite_Functions
+
+#   ____ ___  _   _ ____ _____  _    _   _ _____ ____  
+#  / ___/ _ \| \ | / ___|_   _|/ \  | \ | |_   _/ ___| 
+# | |  | | | |  \| \___ \ | | / _ \ |  \| | | | \___ \ 
+# | |__| |_| | |\  |___) || |/ ___ \| |\  | | |  ___) |
+#  \____\___/|_| \_|____/ |_/_/   \_\_| \_| |_| |____/ 
+                                                     
+screenWidth, screenHeight = 1200, 800
+screen = pygame.display.set_mode((screenWidth, screenHeight))
+pygame.display.set_caption("Tp0")   
+bg = pygame.image.load('dungeon.jpg')
+bg = pygame.transform.scale(bg, (screenWidth, screenHeight))
+scrollX = 0
+scrollY = 0
+clock = pygame.time.Clock()
+scrollMargin = 350
+colors = [(255,255,255), (0,255,0), (255,0,0), (255,255,0), (0,255,255)]
+run = True
+
+pygame.init()
+all_Sprites = pygame.sprite.Group()
+all_Bullets = pygame.sprite.Group()
+clock = pygame.time.Clock()
+
+
+#  ____  ____  ____  ___ _____ _____ 
+# / ___||  _ \|  _ \|_ _|_   _| ____|   
+# \___ \| |_) | |_) || |  | | |  _|  
+#  ___) |  __/|  _ < | |  | | | |___  
+# |____/|_|   |_| \_\___| |_| |_____|
+#   ____ _        _    ____ ____  _____ ____  
+#  / ___| |      / \  / ___/ ___|| ____/ ___| 
+# | |   | |     / _ \ \___ \___ \|  _| \___ \ 
+# | |___| |___ / ___ \ ___) |__) | |___ ___) |
+#  \____|_____/_/   \_\____/____/|_____|____/ 
+
+class Player(pygame.sprite.Sprite):
+    def __init__ (self, x, y, width, height):
+        super().__init__()
+        self.vel = 5
+        self.walkingRight = []
+        self.walkingLeft = []
+        self.walkingUp = []
+        self.walkingDown = []
+        self.direction = 'D'
+        spriteSheet = Sprite_Functions.SpriteSheet('4DCharSprites/Female/Female 15-1.png')
+        
+        for row in range(4):
+            for col in range(3):
+                image = spriteSheet.getImage(2 + 30 * col, 32 * row, 30, 32)
+                image = pygame.transform.scale(image, (60, 64))
+                #down sprites
+                if row == 0: 
+                    self.walkingDown.append(image)
+                elif row == 1:
+                    self.walkingLeft.append(image)
+                elif row == 2:
+                    self.walkingRight.append(image)
+                else:
+                    self.walkingUp.append(image)  
+        self.image = self.walkingDown[0]  
+        self.rect = self.image.get_rect() 
+        self.rect.x = x
+        self.rect.y = y           
+
+    
+    def draw(self, scrollX):
+        screen.blit(self.image, (self.rect.x - scrollX, self.rect.y - scrollY, self.rect.width, self.rect.height))
+    
+    def move(self, dx, dy):
+        if dx > 0 :
+            self.direction = 'R'
+            frame = (self.rect.x) // 30 % len(self.walkingRight)
+            self.image = self.walkingRight[frame]
+        elif dx < 0:
+            self.direction = 'L'
+            frame = (self.rect.x ) // 30 % len(self.walkingLeft)
+            self.image = self.walkingLeft[frame]
+        elif dy < 0:
+            self.direction = 'Up'
+            frame = self.rect.y // 30 % len(self.walkingUp)
+            self.image = self.walkingUp[frame]
+        else:
+            self.direction = 'D'
+            frame = self.rect.y //30 % len(self.walkingDown)
+            self.image = self.walkingDown[frame]
+        self.rect.x += dx
+        self.rect.y += dy
+        if self.hitWall(all_Walls):
+            self.rect.x -= dx
+            self.rect.y -= dy
+    
+    def hitWall(self, wallGroup):
+        return pygame.sprite.spritecollide(self, wallGroup, False) != []
+
+    def shoot(self):
+        bullet = Bullet(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, 10, 10, self.direction)
+        all_Bullets.add(bullet)
+
+#  _____ _   _ _____ __  __ ___ _____ ____  
+# | ____| \ | | ____|  \/  |_ _| ____/ ___| 
+# |  _| |  \| |  _| | |\/| || ||  _| \___ \ 
+# | |___| |\  | |___| |  | || || |___ ___) |
+# |_____|_| \_|_____|_|  |_|___|_____|____/                      
+class Enemy(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.health = 10
+        self.prevTime = 0
+        self.idleCount = -1
+
+    def draw(self, scrollX):
+        screen.blit(self.image, (self.rect.x - scrollX, self.rect.y - scrollY, self.rect.width, self.rect.height))
+    
+    def update(self):
+        now = pygame.time.get_ticks()
+        if now - self.prevTime > 75:
+            self.prevTime = now
+            self.idleCount += 1
+            self.image = self.idleAnimation[self.idleCount % len(self.idleAnimation)]
+        
+
+class Slime(Enemy):
+    def __init__(self, x, y):
+        super().__init__()
+        self.width = 16
+        self.height = 16
+        self.idleAnimation = self.getIdleAnimation(self.width, self.height)
+        self.image = self.idleAnimation[0]
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+    
+    def getIdleAnimation(self, width, height):
+        temp = []
+        imageUrl = ['skelet_idle_anim_f0.png', 'skelet_idle_anim_f1.png', 
+                    'skelet_idle_anim_f2.png', 'skelet_idle_anim_f3.png']
+        for url in imageUrl:
+            image = pygame.image.load(url)
+            image = pygame.transform.scale(image, (70, 70))
+            temp.append(image)
+        return temp
+
+class Zombie(Enemy):
+    def __init__(self, x, y):
+        super().__init__()
+        self.idleAnimation = self.getIdleAnimation()
+        self.image = self.idleAnimation[0]
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+    
+    def getIdleAnimation(self):
+        temp = []
+        imageUrl = ['big_zombie_idle_anim_f0.png', 'big_zombie_idle_anim_f1.png', 
+                    'big_zombie_idle_anim_f2.png', 'big_zombie_idle_anim_f3.png']
+        for url in imageUrl:
+            image = pygame.image.load(url)
+            image = pygame.transform.scale(image, (128, 136))
+            temp.append(image)
+        return temp
+
+#  ____  ____   ___      _ _____ ____ _____ ___ _     _____ ____  
+# |  _ \|  _ \ / _ \    | | ____/ ___|_   _|_ _| |   | ____/ ___| 
+# | |_) | |_) | | | |_  | |  _|| |     | |  | || |   |  _| \___ \ 
+# |  __/|  _ <| |_| | |_| | |__| |___  | |  | || |___| |___ ___) |
+# |_|   |_| \_\\___/ \___/|_____\____| |_| |___|_____|_____|____/                                                             
+class Bullet(pygame.sprite.Sprite):
+    def __init__(self, x, y, width, height, direction):
+        super().__init__()
+        self.image = pygame.Surface((width, height), pygame.SRCALPHA)
+        pygame.draw.circle(self.image, (255,255,0), (width//2, height//2), width//2)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.vel = 10
+        self.direction = direction
+    
+    def draw(self, scrollX):
+        x, y, width, height = self.rect
+        screen.blit(self.image, (x - scrollX, y - scrollY, width, height))
+    
+    def update(self):
+        if self.direction == 'R':
+            self.rect.x += self.vel
+        elif self.direction == 'L':
+            self.rect.x -= self.vel
+        elif self.direction == 'Up':
+            self.rect.y -= self.vel
+        elif self.direction == 'D':
+            self.rect.y += self.vel
+
+#  _____ ___ _     _____ ____  
+# |_   _|_ _| |   | ____/ ___| 
+#   | |  | || |   |  _| \___ \ 
+#   | |  | || |___| |___ ___) |
+#   |_| |___|_____|_____|____/ 
+
+class Tile(pygame.sprite.Sprite):
+    def __init__(self, x, y, blockPath):
+        super().__init__()
+        self.blockPath = blockPath
+
+class Wall(Tile):
+    spriteSheet = Sprite_Functions.SpriteSheet('DungeonTileSet.png')
+    def __init__(self, x, y, givenImage = None):
+        super().__init__(x, y, True)
+        if givenImage == None:
+            self.image = pygame.Surface((75,75))
+            self.image.fill((0,0,0))
+        else:
+            self.image = self.getImage(givenImage)
+            #self.image = pygame.transform.scale(self.image, (75, 75))
+        self.rect = self.image.get_rect()
+        self.rect.x = x * self.rect.width
+        self.rect.y = y * self.rect.height
+    
+    def getImage(self, givenImage):
+        if givenImage == 'Top':
+            return pygame.transform.scale(Wall.spriteSheet.getImage(42, 124, 16, 16), (75,75))
+        elif givenImage == 'Bot':
+            return pygame.transform.scale(Wall.spriteSheet.getImage(42, 156, 16, 16), (75, 75))
+        elif givenImage == 'LeftSide':
+            return pygame.transform.scale(Wall.spriteSheet.getImage(22, 124, 14, 16), (75, 75))
+        elif givenImage == 'LeftBotCorner':
+            return pygame.transform.scale(Wall.spriteSheet.getImage(22, 156, 14, 16), (75, 75))
+        elif givenImage == 'RightBotCorner':
+            return pygame.transform.scale(Wall.spriteSheet.getImage(59, 156, 14, 16), (75, 75))
+        else:
+            return pygame.transform.scale(Wall.spriteSheet.getImage(59, 124, 16, 16), (75, 75))
+
+class Floor(Tile):
+    image = pygame.image.load('floor_1.png')
+    image = pygame.transform.scale(image, (75,75))
+    image2 = pygame.image.load('floor_2.png')
+    image2 = pygame.transform.scale(image2, (75,75))
+    image3 = pygame.image.load('floor_3.png')
+    image3 = pygame.transform.scale(image3, (75,75))
+    image4 = pygame.image.load('floor_5.png')
+    image4 = pygame.transform.scale(image4, (75,75))
+    def __init__(self, x, y):
+        super().__init__(x, y, False)
+        self.image = self.getTileImage()
+        self.rect = self.image.get_rect()
+        self.rect.x = x * self.rect.width
+        self.rect.y = y * self.rect.height
+    
+    def getTileImage(self):
+        temp = random.randint(0,4)
+        if temp == 0 or temp == 1:
+            return Floor.image
+        elif temp == 2:
+            return Floor.image2
+        elif temp == 3:
+            return Floor.image3
+        else:
+            return Floor.image4
+
+#  __  __    _    ____     ____ _____ _   _ _____ ____      _  _____ ___  ____  
+# |  \/  |  / \  |  _ \   / ___| ____| \ | | ____|  _ \    / \|_   _/ _ \|  _ \ 
+# | |\/| | / _ \ | |_) | | |  _|  _| |  \| |  _| | |_) |  / _ \ | || | | | |_) |
+# | |  | |/ ___ \|  __/  | |_| | |___| |\  | |___|  _ <  / ___ \| || |_| |  _ < 
+# |_|  |_/_/   \_\_|      \____|_____|_| \_|_____|_| \_\/_/   \_\_| \___/|_| \_\
+class GameMap(object):
+    def __init__(self):
+        self.maxRooms = 10
+        self.maxRoomSize = 14
+        self.minRoomSize = 8
+        self.map = []
+        self.generate(50, 50)
+        self.startingPoint
+    
+    def generate(self, width, height):
+        self.map = [[Wall(col, row) for col in range(width)] for row in range(height)]
+
+        rooms = []
+        
+        for i in range(self.maxRooms):
+            # random width and height
+            w = random.randint(self.minRoomSize, self.maxRoomSize)
+            h = random.randint(self.minRoomSize, self.maxRoomSize)
+			# random position within map boundries
+            x = random.randint(0, width - w - 1)
+            y = random.randint(0, height - h - 1)
+            newRoom = pygame.Rect(x, y, w, h)
+
+            #check intersection between other rooms
+            if newRoom.collidelist(rooms) == -1:
+                self.createRoom(newRoom)
+                # if len(rooms) != 0:
+                #     prevRoom = rooms[-1]
+                #     prevX, prevY = prevRoom.x + prevRoom.width // 2, prevRoom.y + prevRoom.height // 2
+                #     newX, newY = newRoom.x + newRoom.width // 2, newRoom.y + newRoom.height // 2
+
+                #     if random.randint(0, 1) == 0:
+                #         self.createVerticalTunnel(prevY, newY, prevX)
+                #         self.createHorizontalTunnel(prevX, newX, newY)
+                #     else:
+                #         self.createHorizontalTunnel(prevX, newX, prevY)
+                #         self.createVerticalTunnel(prevY, newY, newX)
+                rooms.append(newRoom)
+            for i in range(len(rooms) - 1):
+                prev, current = rooms[i], rooms[i + 1]
+                prevX, prevY = prev.x + prev.width // 2, prev.y + prev.height // 2
+                currentX, currentY = current.x + current.width // 2, current.y + current.height // 2
+
+                if random.randint(0, 1) == 0:
+                    self.createVerticalTunnel(prevY, currentY, prevX)
+                    self.createHorizontalTunnel(prevX, currentX, currentY)
+                else:
+                    self.createHorizontalTunnel(prevX, currentX, prevY)
+                    self.createVerticalTunnel(prevY, currentY, currentX)
+
+
+        self.startingPoint = rooms[0].x + rooms[0].width // 2, rooms[0].y + rooms[0].height // 2
+        print(f"Number of Rooms: {len(rooms)}")
+
+    def createRoom(self, room):
+        for i in range(room.width):
+            for j in range(room.height):
+                if j == 0 and i + 1 == room.width:
+                    self.map[room.x + i][room.y + j] = Wall(room.y + j, room.x + i, 'LeftBotCorner')
+                elif j + 1 == room.height and i + 1 == room.width:
+                    self.map[room.x + i][room.y + j] = Wall(room.y + j, room.x + i, 'RightBotCorner')
+                elif j == 0:
+                    self.map[room.x + i][room.y + j] = Wall(room.y + j, room.x + i, 'LeftSide')
+                elif j + 1 == room.height:
+                    self.map[room.x + i][room.y + j] = Wall(room.y + j, room.x + i, 'RightSide')
+                elif i == 0:
+                    self.map[room.x + i][room.y + j] = Wall(room.y + j, room.x + i, 'Top')
+                elif i + 1 == room.width:
+                    self.map[room.x + i][room.y + j] = Wall(room.y + j, room.x + i, 'Bot')
+                else:
+                    self.map[room.x + i][room.y + j] = Floor(room.y + j, room.x + i)
+    
+    def createVerticalTunnel(self, y1, y2, x):
+        for y in range(min(y1, y2), max(y1, y2) + 1):
+            self.map[x][y] = Floor(y, x)
+    
+    def createHorizontalTunnel(self, x1, x2, y):
+        for x in range(min(x1, x2), max(x1, x2) + 1):
+            self.map[x][y] = Floor(y, x)
+
+     #returns a sprite group containing all the tiles in the map
+    def getGroup(self):
+        tileGroup = pygame.sprite.Group()
+        wallGroup = pygame.sprite.Group()
+        for row in range(len(self.map)):
+            for col in range(len(self.map[0])):
+                tileGroup.add(self.map[row][col])
+                if type(self.map[row][col]) == Wall:
+                    wallGroup.add(self.map[row][col])
+        return tileGroup, wallGroup
+    
+    def draw(self, screen):
+        for row in range(len(self.map)):
+            for col in range(len(self.map[0])):
+                currTile = self.map[row][col]
+                screen.blit(currTile.image, (col * currTile.rect.width - scrollX, row * currTile.rect.height - scrollY))
+
+#   ____    _    __  __ _____   __  __ _____ _____ _   _  ___  ____  ____  
+#  / ___|  / \  |  \/  | ____| |  \/  | ____|_   _| | | |/ _ \|  _ \/ ___| 
+# | |  _  / _ \ | |\/| |  _|   | |\/| |  _|   | | | |_| | | | | | | \___ \ 
+# | |_| |/ ___ \| |  | | |___  | |  | | |___  | | |  _  | |_| | |_| |___) |
+#  \____/_/   \_\_|  |_|_____| |_|  |_|_____| |_| |_| |_|\___/|____/|____/ 
+
+def redrawAll(scrollX, gameMap):
+    screen.fill((0,0,0))
+    #screen.blit(bg, ((-scrollX % screenWidth) - screenWidth,0))
+    #screen.blit(bg, ((-scrollX + screenWidth ) % screenWidth, 0))
+    gameMap.draw(screen)
+    for sprite in all_Sprites:
+        sprite.draw(scrollX)
+    for sprite in all_Bullets:
+        sprite.draw(scrollX)
+    player.draw(scrollX)
+    pygame.display.update()
+
+def checkScroll(player, width, height, margin, scrollX, scrollY):
+    if player.rect.x - scrollX < margin:
+        scrollX = player.rect.x - margin 
+    if player.rect.x > scrollX + width - margin - player.rect.width:
+        scrollX = player.rect.x - width + margin + player.rect.width
+    
+    if player.rect.y - scrollY < margin: 
+        scrollY = player.rect.y - margin
+    if player.rect.y > scrollY + height - margin - player.rect.height:
+        scrollY = player.rect.y - height + margin + player.rect.height
+    return scrollX, scrollY
+
+def checkCollision(object1, object2):
+    if (object1.rect.x < object2.rect.x + object2.rect.width and 
+        object1.rect.x + object1.rect.width > object2.rect.x and 
+        object1.rect.y < object2.rect.y + object2.rect.height and
+        object1.rect.y + object1.rect.height > object2.rect.y):
+        return True
+    return False
+
+def createMap(player, all_Tiles, all_Walls):
+    gameMap = GameMap()
+    all_Tiles.empty()
+    all_Walls.empty()
+    all_Tiles, all_Walls = gameMap.getGroup()
+    playerX, playerY = gameMap.startingPoint
+    player.move(playerX, playerY)
+    scrollX , scrollY = 0, 0
+    return gameMap, scrollX, scrollY
+
+#   ____    _    __  __ _____   _     ___   ___  ____  
+#  / ___|  / \  |  \/  | ____| | |   / _ \ / _ \|  _ \ 
+# | |  _  / _ \ | |\/| |  _|   | |  | | | | | | | |_) |
+# | |_| |/ ___ \| |  | | |___  | |__| |_| | |_| |  __/ 
+#  \____/_/   \_\_|  |_|_____| |_____\___/ \___/|_|    
+
+gameMap = GameMap()
+all_Tiles, all_Walls = gameMap.getGroup()
+playerX, playerY = gameMap.startingPoint
+player = Player (playerY * 75, playerX * 75, 60, 64)
+slime = Zombie(playerY * 75, playerX * 75)
+all_Sprites.add(slime)
+print(all_Walls) 
+
+while run:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            run = False
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE: player.shoot()
+
+    #check key events
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_a]:
+        player.move(-5, 0)
+    elif keys[pygame.K_d]:
+        player.move(5, 0)
+    elif keys[pygame.K_w]:
+        player.move(0, -5)
+    elif keys[pygame.K_s]:
+        player.move(0, 5)
+    elif keys[pygame.K_r]:
+        gameMap, scrollX, scrollY = createMap(player, all_Tiles, all_Walls)
+    scrollX, scrollY = checkScroll(player, screenWidth, screenHeight, scrollMargin, scrollX, scrollY)
+
+    #bullet collision 
+    pygame.sprite.groupcollide(all_Bullets, all_Walls, True, False)
+    hit = pygame.sprite.groupcollide(all_Sprites, all_Bullets, False, True)
+    for enemySprite, bullet in hit.items():
+        #enemySprite.counter += 1
+        #enemySprite.color = enemy.color = (0,255,128)
+        pass
+
+    all_Sprites.update()
+    all_Bullets.update()
+    redrawAll(scrollX, gameMap)
+
+    pygame.display.set_caption(str(clock.get_fps())) 
+    clock.tick(60)
+
+pygame.quit()
