@@ -147,6 +147,7 @@ class Player(pygame.sprite.Sprite):
         self.rect.y = y     
         self.health = 100     
         self.maxHealth = 100 
+        self.attackTimer = 0
 
     def draw(self, screen, scrollX, scrollY):
         pygame.draw.rect(screen, (255, 0 ,0), (screenWidth // 15, screenHeight // 15
@@ -186,10 +187,18 @@ class Player(pygame.sprite.Sprite):
     def hitWall(self, wallGroup):
         return pygame.sprite.spritecollide(self, wallGroup, False) != []
 
-    def shoot(self, all_Bullets):
-        bullet = Bullet(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, 10, 10, self.direction)
-        all_Bullets.add(bullet)
-    
+    def shoot(self, pos, all_Bullets, scrollX, scrollY):
+        x, y = pos
+        dx, dy = x - (self.rect.x  + self.rect.width//2 - scrollX), y - (self.rect.y + self.rect.width//2 - scrollY)
+        dist = math.hypot(dx, dy)
+        if dist != 0:
+            dx, dy = dx / dist, dy / dist  
+        now = pygame.time.get_ticks()
+        if now - self.attackTimer > 250:
+            self.attackTimer = now
+            all_Bullets.add(Plasma(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, dx, dy, 10, 8))
+          
+   
     def fireBall(self, all_Abilities):
         angle = 0
         for i in range(8):
@@ -232,7 +241,7 @@ class Enemy(pygame.sprite.Sprite):
     def move(self, all_Walls):
         pass 
 
-    def update(self, all_Walls):
+    def update(self, player, all_Walls):
         now = pygame.time.get_ticks()
         if now - self.prevTime > 75:
             self.prevTime = now
@@ -274,6 +283,7 @@ class Zombie(Enemy):
         self.vel = 5
         self.health = 100
         self.maxHealth = 100
+        self.attackTimer = 0
     
     def getIdleAnimation(self):
         temp = []
@@ -292,31 +302,185 @@ class Zombie(Enemy):
         else:
             self.vel *= -1
             self.rect.x += self.vel
+    
+    def attack(self, player, all_Walls):
+        if pygame.sprite.collide_rect(self, player):
+            now = pygame.time.get_ticks()
+            if now - self.attackTimer > 600:
+                self.attackTimer = now
+                player.takeDamage(self.damage)
+                player.move(0, 40, all_Walls)
+    
+    def update(self, player, all_Walls):
+        super().update(player, all_Walls)
+        self.attack(player, all_Walls)
+    
 
 class Demon(Enemy):
+    states = ['idle', 'attack']
+    spriteSheet = SpriteSheet('4dCharSprites/Enemy/Enemy 17-5.png')
     def __init__(self, x, y):
         super().__init__()
-        self.walkingRight, self.walkingLeft, self.walkingUp, self.walkingDown = loadSprites('4dCharSprites/Enemy/Enemy 01-1.png', 60, 64)
-        self.image = self.walkingDown[0]
+        self.health = 30
+        self.maxHealth = 30
+        self.idleAnimation = self.getIdleAnimation()
+        self.image = self.idleAnimation[0]
         self.rect = self.image.get_rect()
         self.rect.x = x * Tile.size
         self.rect.y = y * Tile.size
-        self.vel = 5
+        self.vel = 3
         self.state = 'idle'
-        self.direction = 'D'
+        self.angle = 0
+
+    def getIdleAnimation(self):
+        temp = []
+        for i in range(3):
+            image = Demon.spriteSheet.getImage(i * 32, 0, 32, 32)
+            image = pygame.transform.scale(image, (64, 64))
+            temp.append(image)
+        return temp
 
     #follows the player around
     def move(self): 
-        pass   
+        self.rect.x += self.dx
+        self.rect.y += self.dy 
+    
+    def attack(self, all_EnemyBullets):
+        now = pygame.time.get_ticks()
+        if now - self.attackTimer > 450:
+            self.attackTimer = now
 
-    def trackPlayer(self):
-        pass
+    def trackPlayer(self, player, all_EnemyBullets):
+        dx, dy = (player.rect.x  + player.rect.width//2) - (self.rect.x + self.rect.width//2), (player.rect.y + player.rect.width//2) - (self.rect.y + self.rect.width//2)
+        dist = math.hypot(dx, dy)
+        if dist != 0:
+            dx, dy = dx / dist, dy / dist  # Normalize.
+            # Move along this normalized vector towards the player at current speed.
+            self.rect.x += dx * self.vel
+            self.rect.y += dy * self.vel
+        now = pygame.time.get_ticks()
+        if now - self.attackTimer > 500:
+            self.attackTimer = now
+            all_EnemyBullets.add(Plasma(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, dx, dy))
+            
+    
+    def checkState(self, player):
+        distance = math.sqrt((player.rect.x + player.rect.width//2 - self.rect.x + self.rect.width// 2) ** 2 + 
+                            (player.rect.y + player.rect.height//2 - self.rect.y + self.rect.height// 2) ** 2)
+        if distance < 6 * Tile.size:
+            self.state = 'Attack'
+        else:
+            self.state = 'idle'
 
-    def update(self, all_Walls):
-        if self.state == 'idle':
-            self.image = self.walkingDown[0]
-        elif self.state == 'chase':
-            pass
+    def update(self, player, all_Walls, all_EnemyBullets):
+        self.checkState(player)
+        if self.state == 'Attack':
+            # self.attack(all_EnemyBullets)
+            self.trackPlayer(player, all_EnemyBullets)
+        now = pygame.time.get_ticks()
+        if now - self.prevTime > 75:
+            self.prevTime = now
+            self.idleCount += 1
+            self.image = self.idleAnimation[self.idleCount % len(self.idleAnimation)]      
+        if self.health <= 0:
+            self.kill()
+        
+#sprite from https://uilleaggodwin.itch.io/roguelike-dungeon-asset-bundle
+class Boss(Enemy):
+    states = ['Burst', 'Track', 'Idle', 'Homing']
+    def __init__(self, x, y):
+        super().__init__()
+        self.health = 250
+        self.maxHealth = 250
+        self.animation = self.loadAnimation()
+        self.image = self.animation[0]
+        self.rect = self.image.get_rect()
+        self.rect.x = x * Tile.size
+        self.rect.y = y * Tile.size
+        self.state = 'idle'
+        self.stateTimer = 0
+        self.spriteTimer = 0
+        self.attackTimer = 0
+        self.idleCount = 0
+    
+    def loadAnimation(self):
+        temp = []
+        imageUrl = ['AllSprites/SkeletonKing_Walk_0.png', 'AllSprites/SkeletonKing_Walk_1.png',
+                    'AllSprites/SkeletonKing_Walk_2.png', 'AllSprites/SkeletonKing_Walk_3.png']
+        for url in imageUrl:
+            image = pygame.image.load(url).convert_alpha()
+            image = pygame.transform.scale(image, (350, 350))
+            temp.append(image)
+        return temp
+
+    #chooses a random state of attack 
+    def changeState(self):
+        now = pygame.time.get_ticks()
+        if now - self.stateTimer > 1000:
+            self.stateTimer = now
+            self.state = random.choice(Boss.states)
+    
+    def burstAttack(self, all_EnemyBullets):
+        angle = 0
+        for i in range(16):
+            all_EnemyBullets.add(Fireball(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, angle, 10, 5, 'Energy Ball'))
+            angle += math.pi / 8
+    
+    def trackingAttack(self, player, all_EnemyBullets):
+        playerX = player.rect.x + player.rect.width // 2
+        playerY = player.rect.y + player.rect.height // 2
+        dy = playerY - (self.rect.y + self.rect.width // 2)
+        dx = playerX - (self.rect.x + self.rect.height // 2)
+        
+        if dy < 0 and dx > 0:
+            angle = math.atan(dy / dx)
+        elif dy > 0 and dx < 0:
+            angle = math.pi + math.atan(dy / dx)
+        elif dy < 0 and dx < 0:
+            angle = math.pi + math.atan(dy / dx)
+        elif dy > 0 and dx > 0:
+            angle = math.atan(dy / dx)
+        elif dy == 0 and dx > 0:
+            angle = 0 
+        elif dy == 0 and dx < 0:
+            angle = math.pi
+        elif dx == 0 and dy < 0:
+            angle = math.pi / 2
+        else:
+            angle = -math.pi / 2
+        all_EnemyBullets.add(Fireball(self.rect.x + self.rect.width // 2, self.rect.y + self.rect.height // 2, angle, 5, 8, 'Star'))                           
+    
+    def shootHomingBullets(self, all_EnemyBullets):
+        all_EnemyBullets.add(HomingBullet(self.rect.x + self.rect.width // 2, self.rect.y + self.rect.height // 2))
+
+    #loops through idle animation
+    def updateSprite(self):
+         now = pygame.time.get_ticks()
+         if now - self.spriteTimer > 75:
+            self.spriteTimer = now
+            self.idleCount += 1
+            self.image = self.animation[self.idleCount % len(self.animation)] 
+
+    def update(self, player, all_EnemyBullets):
+        self.changeState()
+        self.updateSprite()
+        now = pygame.time.get_ticks()
+        if self.state == 'Burst':
+            if now - self.attackTimer > 600:
+                self.attackTimer = now
+                self.burstAttack(all_EnemyBullets)
+        elif self.state == 'Track':
+            if now - self.attackTimer > 100:
+                self.attackTimer = now
+                self.trackingAttack(player, all_EnemyBullets)
+        elif self.state == 'Homing':
+            if now - self.attackTimer > 300:
+                self.attackTimer = now
+                self.shootHomingBullets(all_EnemyBullets)
+        elif self.state == 'Idle':
+            pass 
+        if self.health <= 0:
+            self.kill()
 
 
 #  ____  ____   ___      _ _____ ____ _____ ___ _     _____ ____  
@@ -324,6 +488,26 @@ class Demon(Enemy):
 # | |_) | |_) | | | |_  | |  _|| |     | |  | || |   |  _| \___ \ 
 # |  __/|  _ <| |_| | |_| | |__| |___  | |  | || |___| |___ ___) |
 # |_|   |_| \_\\___/ \___/|_____\____| |_| |___|_____|_____|____/                                                             
+class Plasma(pygame.sprite.Sprite):
+    spriteSheet = SpriteSheet('AllSprites/projectiles.png')
+    def __init__(self, x, y, dx, dy, damage = 2, vel = 6):
+        super().__init__()
+        self.image = Plasma.spriteSheet.getImage(16, 16, 15, 15)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.vel = vel
+        self.dx = dx
+        self.dy = dy
+        self.damage = damage
+    
+    def update(self):
+        self.rect.x += self.dx * self.vel
+        self.rect.y += self.dy * self.vel
+    
+    def draw(self, screen, scrollX, scrollY):
+        screen.blit(self.image, (self.rect.x - scrollX, self.rect.y - scrollY, self.rect.width, self.rect.height))
+
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, x, y, width, height, direction):
         super().__init__()
@@ -352,41 +536,75 @@ class Bullet(pygame.sprite.Sprite):
 
 class Fireball(pygame.sprite.Sprite):
     spriteSheet = SpriteSheet('AllSprites/Fireball.png')
-    def __init__(self, x, y, angle):
+    spriteSheet2 = SpriteSheet('AllSprites/projectiles.png')
+    def __init__(self, x, y, angle, damage = 20, vel = 8, element = None):
         super().__init__()
-        self.animation = self.loadAnimation()
-        self.image = Fireball.spriteSheet.getImage(21, 23, 28, 16)
-        self.image = pygame.transform.scale(self.image, (56, 32))
-        self.image = pygame.transform.rotate(self.image,360 - math.degrees(angle))
-        #self.image = self.animation[0]
+        self.element = element
+        self.angle = angle
+        self.image = self.loadImage()
         self.rect = self.image.get_rect()
         self.rect.x = x
         self.rect.y = y
-        self.vel = 8
-        self.dx = self.vel * math.cos(angle)
-        self.dy = self.vel * math.sin(angle)
-        self.damage = 20
+        self.vel = vel
+        self.dx = self.vel * math.cos(self.angle)
+        self.dy = self.vel * math.sin(self.angle)
+        self.damage = damage
     
-    def loadAnimation(self):
-        temp = []
-        for i in range(24):
-            image = Fireball.spriteSheet.getImage(6 + i * 148, 22, 28, 16)
-            image = pygame.transform.scale(image, (84, 36))
-            temp.append(image)
-        return temp
+    def loadImage(self):
+        if self.element == 'Energy Ball':
+            image = Fireball.spriteSheet2.getImage(192, 16, 15, 15)
+            image = pygame.transform.scale(image, (45, 45))
+        elif self.element == 'Star':
+            image = Fireball.spriteSheet2.getImage(64, 64, 15, 15)
+            image = pygame.transform.scale(image, (45, 45))
+        else:
+            image = Fireball.spriteSheet.getImage(21, 23, 28, 16)
+            image = pygame.transform.scale(image, (56, 32))
+        image = pygame.transform.rotate(image, 360 - math.degrees(self.angle))
+        return image 
     
     def update(self):
         self.rect.x += self.dx
         self.rect.y += self.dy
-        # change = int(math.sqrt(self.rect.x ** 2 + self.rect.y ** 2))
-        # frame = change // 10 % len(self.animation)
-        # self.image = self.animation[frame]
+    
+    def draw(self, screen, scrollX, scrollY):
+        screen.blit(self.image, (self.rect.x - scrollX, self.rect.y - scrollY, self.rect.width, self.rect.height))
+
+class HomingBullet(pygame.sprite.Sprite):
+    spriteSheet = SpriteSheet('AllSprites/projectiles.png')
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = self.loadImage()
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.vel = 4
+        self.damage = 5
+        self.liveTime = 0
+        
+    def loadImage(self):
+        image = HomingBullet.spriteSheet.getImage(98, 32, 11, 16)
+        image = pygame.transform.scale(image, (33, 48))
+        return image
+    #from https://stackoverflow.com/questions/20044791/how-to-make-an-enemy-follow-the-player-in-pygame
+    def trackPlayer(self, player):
+        dx, dy = (player.rect.x  + player.rect.width//2) - (self.rect.x + self.rect.width//2), (player.rect.y + player.rect.width//2) - (self.rect.y + self.rect.width//2)
+        dist = math.hypot(dx, dy)
+        if dist != 0:
+            dx, dy = dx / dist, dy / dist
+            self.rect.x += dx * self.vel
+            self.rect.y += dy * self.vel
+    
+    def update(self, player):
+        self.trackPlayer(player)
+        self.liveTime += 1
     
     def draw(self, screen, scrollX, scrollY):
         screen.blit(self.image, (self.rect.x - scrollX, self.rect.y - scrollY, self.rect.width, self.rect.height))
 
 class Portal(pygame.sprite.Sprite):
     spriteSheet = SpriteSheet('AllSprites/BluePortal.png')
+    spriteSheet2 = SpriteSheet('AllSprites/RedPortal.png')
     def __init__(self, x, y, sendLocation = None):
         super().__init__()
         self.sendLocation = sendLocation
@@ -400,10 +618,16 @@ class Portal(pygame.sprite.Sprite):
     
     def getAnimation(self):
         temp = []
-        for y in range(3):
-            for x in range(5):
-                image = Portal.spriteSheet.getImage(192 * x, 192 * y, 192, 192)
-                temp.append(image)
+        if self.sendLocation == 'Level3':
+            for y in range(3):
+                for x in range(5):
+                    image = Portal.spriteSheet2.getImage(192 * x, 192 * y, 192, 192)
+                    temp.append(image)
+        else:
+            for y in range(3):
+                for x in range(5):
+                    image = Portal.spriteSheet.getImage(192 * x, 192 * y, 192, 192)
+                    temp.append(image)
         return temp
     
     def draw(self, screen, scrollX, scrollY):
@@ -415,6 +639,7 @@ class Portal(pygame.sprite.Sprite):
             self.prevTime = now
             self.animationCount += 1
             self.image = self.animation[self.animationCount % len(self.animation)]
+    
 
 #  __  __    _    ____     ____ _____ _   _ _____ ____      _  _____ ___  ____  
 # |  \/  |  / \  |  _ \   / ___| ____| \ | | ____|  _ \    / \|_   _/ _ \|  _ \ 
@@ -424,10 +649,10 @@ class Portal(pygame.sprite.Sprite):
 
 #got idea and adapted from https://www.youtube.com/watch?v=fGvvi5vR17s&t=3265s
 class GameMap(object):
-    def __init__(self):
-        self.maxRooms = 10
-        self.maxRoomSize = 14
-        self.minRoomSize = 8
+    def __init__(self, maxRooms = 10, maxRoomSize = 14, minRoomSize = 8):
+        self.maxRooms = maxRooms
+        self.maxRoomSize = maxRoomSize
+        self.minRoomSize = minRoomSize
         self.map = []
         self.rooms = self.generate(50, 50)
         self.startingPoint
@@ -455,15 +680,14 @@ class GameMap(object):
                 prevX, prevY = prev.x + prev.width // 2, prev.y + prev.height // 2
                 currentX, currentY = current.x + current.width // 2, current.y + current.height // 2
 
-                if len(rooms) == 2:
-                    self.startingPoint = prevX * Tile.size, prevY * Tile.size
-
                 if random.randint(0, 1) == 0:
                     self.createVerticalTunnel(prevY, currentY, prevX)
                     self.createHorizontalTunnel(prevX, currentX, currentY)
                 else:
                     self.createHorizontalTunnel(prevX, currentX, prevY)
                     self.createVerticalTunnel(prevY, currentY, currentX)
+            self.startingPoint = ((rooms[0].x + rooms[0].width // 2) * Tile.size, 
+                                 (rooms[0].y + rooms[0].height //2) * Tile.size)
         print(f"Number of Rooms: {len(rooms)}")
         return rooms
 
@@ -498,11 +722,15 @@ class GameMap(object):
         for room in self.rooms:
             temp = pygame.Rect(room.x + 1, room.y + 1, room.width -4, room.height - 4)
             for i in range(3):
-                if random.randint(0,1) == 0:
+                choice = random.randint(0,2)
+                if choice == 0:
                     group.add(Zombie(random.randint(temp.x, temp.x - 1 + temp.width),
                                     random.randint(temp.y, temp.y - 1 + temp.height)))
-                else:
+                elif choice == 1:
                     group.add(Skeleton(random.randint(temp.x, temp.x - 1 + temp.width),
+                                    random.randint(temp.y, temp.y - 1 + temp.height)))
+                elif choice == 2:
+                    group.add(Demon(random.randint(temp.x, temp.x - 1 + temp.width),
                                     random.randint(temp.y, temp.y - 1 + temp.height)))
         return group
 
@@ -526,7 +754,7 @@ class GameMap(object):
     def generatePortals(self, all_Walls):
         temp = pygame.sprite.Group()
         room = self.rooms[-1]
-        temp.add(Portal((room.x + room.width//2) * Tile.size, (room.y + room.height//2) * Tile.size, 'Level2'))
+        temp.add(Portal((room.x + room.width//2) * Tile.size, (room.y + room.height//2) * Tile.size, 'Level3'))
         print(len(temp))
         return temp
 
@@ -538,7 +766,7 @@ class CellularAutomataMap(object):
         self.numSimulation = 6
         self.neighbors = 4
         self.generate(self.width, self.height)
-        self.numEnemies = 15
+        self.numEnemies = 10
     
     def generate(self, width, height):
         self.map = [[0 for y in range(height)] for x in range(width)]
@@ -632,7 +860,6 @@ class CellularAutomataMap(object):
                         wallCount += 1
         return wallCount
 
-
     def randomPoint(self):
         while True:
             x = random.randint(1, self.width - 1)
@@ -648,6 +875,9 @@ class CellularAutomataMap(object):
             temp.add(Skeleton(x / Tile.size, y / Tile.size))
             x, y = self.randomPoint()
             temp.add(Zombie(x / Tile.size, y / Tile.size))
+            x, y = self.randomPoint()
+            temp.add(Demon(x / Tile.size, y / Tile.size))
+
         #check that they are in the map
         for mob in temp:
             if mob.hitWall(all_Walls):
@@ -664,6 +894,67 @@ class CellularAutomataMap(object):
             if pygame.sprite.spritecollide(portal, all_Walls, False) != []:
                 portal.kill()
         return temp
+
+class RoomMap(object):
+    def __init__(self):
+        self.roomWidth = 15
+        self.roomHeight = 15
+        self.map = []
+        self.room = self.generate()
+
+    def generate(self):
+        self.map = [[Wall(x, y) for y in range(20)] for x in range(20)]
+
+        x = random.randint(0, 20 - self.roomWidth - 1)
+        y = random.randint(0, 20 - self.roomHeight - 1)
+        newRoom = pygame.Rect(x, y, self.roomWidth, self.roomHeight)
+        self.startingPoint = ((newRoom.x + newRoom.width // 3) * Tile.size, 
+                            (newRoom.y + newRoom.height // 3) * Tile.size)
+        self.createRoom(newRoom)
+        return newRoom
+
+    def createRoom(self, room):
+        for i in range(room.width):
+            for j in range(room.height):
+                if j + 1 == room.height and i + 1 == room.width:
+                    self.map[room.x + i][room.y + j] = Wall(room.x + i, room.y + j, 'RightBotCorner')
+                elif i == 0 and j + 1 == room.height:
+                    self.map[room.x + i][room.y + j] = Wall(room.x + i, room.y + j, 'LeftBotCorner')
+                elif i == 0:
+                    self.map[room.x + i][room.y + j] = Wall(room.x + i, room.y + j, 'LeftSide')
+                elif i + 1 == room.width:
+                    self.map[room.x + i][room.y + j] = Wall(room.x + i, room.y + j, 'RightSide')
+                elif j == 0:
+                    self.map[room.x + i][room.y + j] = Wall(room.x + i, room.y + j, 'Bot')
+                elif j + 1 == room.height:
+                    self.map[room.x + i][room.y + j] = Wall(room.x + i, room.y + j, 'Top')
+                else:
+                    self.map[room.x + i][room.y + j] = Floor(room.x + i, room.y + j)
+
+    def draw(self, screen, scrollX, scrollY):
+            for x in range(len(self.map)):
+                for y in range(len(self.map[0])):
+                    currTile = self.map[x][y]
+                    screen.blit(currTile.image, (x * currTile.rect.width - scrollX, y * currTile.rect.height - scrollY))
+
+    def generateBoss(self):
+        temp = pygame.sprite.Group()
+        x = self.room.x + self.room.width // 2
+        y = self.room.y + self.room.height // 2
+        temp.add(Boss(x - 2, y - 3))
+        return temp 
+    
+    #returns a sprite group containing all the tiles in the map
+    def getGroup(self):
+        tileGroup = pygame.sprite.Group()
+        wallGroup = pygame.sprite.Group()
+        for x in range(20):
+            for y in range(20):
+                tileGroup.add(self.map[x][y])
+                if type(self.map[x][y]) == Wall:
+                    wallGroup.add(self.map[x][y])
+        return tileGroup, wallGroup
+
 
 #   ____    _    __  __ _____   __  __ _____ _____ _   _  ___  ____  ____  
 #  / ___|  / \  |  \/  | ____| |  \/  | ____|_   _| | | |/ _ \|  _ \/ ___| 
@@ -685,6 +976,8 @@ class Game(object):
         self.all_Portals = pygame.sprite.Group()
         self.all_Walls = pygame.sprite.Group()
         self.all_Tiles = pygame.sprite.Group()
+        self.all_EnemyBullets = pygame.sprite.Group()
+        self.all_Boss = pygame.sprite.Group()
 
         self.gameMap = CellularAutomataMap()
         self.all_Tiles, self.all_Walls = self.gameMap.getGroup()
@@ -703,8 +996,10 @@ class Game(object):
                 if event.type == pygame.QUIT:
                     run = False
                 if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_SPACE: self.player.shoot(self.all_Bullets)
-                    elif event.key == pygame.K_j: self.player.fireBall(self.all_Abilities)
+                    if event.key == pygame.K_f: self.player.fireBall(self.all_Abilities)
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    pos = pygame.mouse.get_pos()
+                    self.player.shoot(pos, self.all_Bullets, self.scrollX, self.scrollY,)
 
             #check key events
             keys = pygame.key.get_pressed()
@@ -724,7 +1019,7 @@ class Game(object):
                 self.all_Sprites.empty()
                 self.all_Sprites = self.gameMap.generateEnemies(self.all_Walls)
                 self.all_Portals = self.gameMap.generatePortals(self.all_Walls)
-            elif keys[pygame.K_f]:
+            elif keys[pygame.K_c]:
                 self.all_Sprites.empty()
                 self.gameMap = CellularAutomataMap()
                 self.all_Tiles, self.all_Walls = self.gameMap.getGroup()
@@ -739,17 +1034,32 @@ class Game(object):
             #portal collision
             portals = pygame.sprite.spritecollide(self.player, self.all_Portals, False, False)
             if len(portals) > 0:
+                self.all_Sprites.empty()
+                self.all_Portals.empty()
+                self.all_Boss.empty()
+                self.all_EnemyBullets.empty()
                 if portals[0].sendLocation == 'Level1':
                     self.gameMap = GameMap()
                     playerX, playerY = self.gameMap.startingPoint
                     self.all_Sprites = self.gameMap.generateEnemies(self.all_Walls)
+                    self.all_Portals = self.gameMap.generatePortals(self.all_Walls)
+                    self.all_Tiles, self.all_Walls = self.gameMap.getGroup()
+                    self.player.setLocation(playerX, playerY)
                 elif portals[0].sendLocation == 'Level2':
                     self.gameMap = CellularAutomataMap()
                     playerX, playerY = self.gameMap.randomPoint()
                     self.all_Sprites = self.gameMap.generateEnemies(self.all_Walls)
-                self.all_Portals = self.gameMap.generatePortals(self.all_Walls)
-                self.all_Tiles, self.all_Walls = self.gameMap.getGroup()
-                self.player.setLocation(playerX, playerY)
+                    self.all_Portals = self.gameMap.generatePortals(self.all_Walls)
+                    self.all_Tiles, self.all_Walls = self.gameMap.getGroup()
+                    self.player.setLocation(playerX, playerY)
+                elif portals[0].sendLocation == 'Level3':
+                    self.gameMap = RoomMap()
+                    self.all_Tiles, self.all_Walls = self.gameMap.getGroup()
+                    playerX, playerY = self.gameMap.startingPoint
+                    self.player = Player(playerX, playerY, 60, 64)
+                    self.all_Tiles, self.all_Walls = self.gameMap.getGroup()
+                    self.player.setLocation(playerX, playerY)
+                    self.all_Boss = self.gameMap.generateBoss()
 
             self.updateGame()
             self.redrawAll()
@@ -772,20 +1082,41 @@ class Game(object):
             sprite.draw(self.screen, self.scrollX, self.scrollY)
         for sprite in self.all_Portals:
             sprite.draw(self.screen, self.scrollX, self.scrollY)
+        for sprite in self.all_Boss:
+            sprite.draw(self.screen, self.scrollX, self.scrollY)
+        for sprite in self.all_EnemyBullets:
+            sprite.draw(self.screen, self.scrollX, self.scrollY)
         self.player.draw(self.screen, self.scrollX, self.scrollY)
         pygame.display.update()
 
     def updateGame(self):
+        now = pygame.time.get_ticks()
         for sprite in self.all_Sprites:
-            sprite.update(self.all_Walls)
+            if type(sprite) == Demon:
+                sprite.update(self.player, self.all_Walls, self.all_EnemyBullets)
+            else:
+                sprite.update(self.player, self.all_Walls)
+        for sprite in self.all_Boss:
+            sprite.update(self.player, self.all_EnemyBullets)
+        for sprite in self.all_EnemyBullets:
+            if type(sprite) == HomingBullet:
+                sprite.update(self.player)
+                if sprite.liveTime > 200: sprite.kill()
+            else:
+                sprite.update()
         self.all_Bullets.update()
         self.all_Abilities.update()
         self.all_Portals.update()
 
     def gameCollisions(self):
         #bullet collision 
+        pygame.sprite.groupcollide(self.all_EnemyBullets, self.all_Walls, True, False)
         pygame.sprite.groupcollide(self.all_Bullets, self.all_Walls, True, False)
         hit = pygame.sprite.groupcollide(self.all_Sprites, self.all_Bullets, False, True)
+        for enemySprite, bulletList in hit.items():
+            for item in bulletList:
+                enemySprite.health -= item.damage
+        hit = pygame.sprite.groupcollide(self.all_Boss, self.all_Bullets, False, True)
         for enemySprite, bulletList in hit.items():
             for item in bulletList:
                 enemySprite.health -= item.damage
@@ -795,10 +1126,14 @@ class Game(object):
         for enemySprite, abilitiesList in hit.items():
             for item in abilitiesList:
                 enemySprite.health -= item.damage
+        hit = pygame.sprite.groupcollide(self.all_Boss, self.all_Abilities, False, True)
+        for enemySprite, abilitiesList in hit.items():
+            for item in abilitiesList:
+                enemySprite.health -= item.damage
         #player collide damage
-        hit = pygame.sprite.spritecollide(self.player, self.all_Sprites, False, False)
-        for enemy in hit:
-            self.player.takeDamage(enemy.damage)
+        hit = pygame.sprite.spritecollide(self.player, self.all_EnemyBullets, True)
+        for item in hit:
+            self.player.takeDamage(item.damage)
 
     def checkScroll(self):
         if self.player.rect.x - self.scrollX < self.scrollMargin:
@@ -810,29 +1145,5 @@ class Game(object):
             self.scrollY = self.player.rect.y - self.scrollMargin
         if self.player.rect.y > self.scrollY + self.screenHeight - self.scrollMargin - self.player.rect.height:
             self.scrollY = self.player.rect.y - self.screenHeight + self.scrollMargin + self.player.rect.height
-
-    # def checkCollision(object1, object2):
-    #     if (object1.rect.x < object2.rect.x + object2.rect.width and 
-    #         object1.rect.x + object1.rect.width > object2.rect.x and 
-    #         object1.rect.y < object2.rect.y + object2.rect.height and
-    #         object1.rect.y + object1.rect.height > object2.rect.y):
-    #         return True
-    #     return False
-
-    # def createMap(self):
-    #     self.gameMap = GameMap()
-    #     all_Tiles.empty()
-    #     all_Walls.empty()
-    #     all_Tiles, all_Walls = gameMap.getGroup()
-    #     playerX, playerY = gameMap.startingPoint
-    #     player.move(playerX, playerY)
-    #     scrollX , scrollY = 0, 0
-    #     return gameMap, scrollX, scrollY
-
-
-#   ____    _    __  __ _____   _     ___   ___  ____  
-#  / ___|  / \  |  \/  | ____| | |   / _ \ / _ \|  _ \ 
-# | |  _  / _ \ | |\/| |  _|   | |  | | | | | | | |_) |
-# | |_| |/ ___ \| |  | | |___  | |__| |_| | |_| |  __/ 
-#  \____/_/   \_\_|  |_|_____| |_____\___/ \___/|_|    
+  
 Game().run()
