@@ -1,6 +1,10 @@
 import pygame, random, math
 screenWidth, screenHeight = 1200, 800
 screen = pygame.display.set_mode((screenWidth, screenHeight)) 
+font = pygame.font.init()
+font2 = pygame.font.init()
+font = pygame.font.SysFont('comicsans', 70, True)
+font2 = pygame.font.SysFont('comicsans', 100, True)
 #   ____ ___  _   _ ____ _____  _    _   _ _____ ____  
 #  / ___/ _ \| \ | / ___|_   _|/ \  | \ | |_   _/ ___| 
 # | |  | | | |  \| \___ \ | | / _ \ |  \| | | | \___ \ 
@@ -59,6 +63,7 @@ class Tile(pygame.sprite.Sprite):
         super().__init__()
         self.blockPath = blockPath
 
+#sprites from https://0x72.itch.io/dungeontileset-ii
 class Wall(Tile):
     spriteSheet = SpriteSheet('DungeonTileSet.png')
     def __init__(self, x, y, givenImage = None):
@@ -86,6 +91,7 @@ class Wall(Tile):
         else:
             return pygame.transform.scale(Wall.spriteSheet.getImage(59, 124, 16, 16).convert(), (Tile.size, Tile.size))
 
+#sprites from https://0x72.itch.io/dungeontileset-ii
 class Floor(Tile):
     image = pygame.image.load('floor_1.png').convert()
     image = pygame.transform.scale(image, (Tile.size,Tile.size))
@@ -95,8 +101,6 @@ class Floor(Tile):
     image3 = pygame.transform.scale(image3, (Tile.size,Tile.size))
     image4 = pygame.image.load('floor_5.png').convert()
     image4 = pygame.transform.scale(image4, (Tile.size,Tile.size))
-    # spriteSheet = SpriteSheet('grassTiles.png')
-    # image5 = pygame.transform.scale(spriteSheet.getImage(0, 62, 31, 31), (Tile.size, Tile.size))
     image5 = pygame.image.load('floor_1_type2.png').convert()
     image5 = pygame.transform.scale(image5, (Tile.size, Tile.size))
     image6 = pygame.image.load('floor_6_type2.png').convert()
@@ -135,6 +139,7 @@ class Floor(Tile):
                 else:
                     return Floor.image8
 
+#sprites from https://pipoya.itch.io/pipoya-free-rpg-character-sprites-32x32
 class Player(pygame.sprite.Sprite):
     def __init__ (self, x, y, width, height):
         super().__init__()
@@ -148,6 +153,8 @@ class Player(pygame.sprite.Sprite):
         self.health = 100     
         self.maxHealth = 100 
         self.attackTimer = 0
+        self.fireBallTimer = 0
+        self.fireBallOnCD = False
 
     def draw(self, screen, scrollX, scrollY):
         pygame.draw.rect(screen, (255, 0 ,0), (screenWidth // 15, screenHeight // 15
@@ -198,12 +205,14 @@ class Player(pygame.sprite.Sprite):
             self.attackTimer = now
             all_Bullets.add(Plasma(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, dx, dy, 10, 8))
           
-   
     def fireBall(self, all_Abilities):
-        angle = 0
-        for i in range(8):
-            all_Abilities.add(Fireball(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, angle))
-            angle += math.pi / 4
+        now = pygame.time.get_ticks()
+        if now - self.fireBallTimer > 1500:
+            self.fireBallTimer = now
+            angle = 0
+            for i in range(8):
+                all_Abilities.add(Fireball(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, angle))
+                angle += math.pi / 4
 
     def setLocation(self, x, y):
         self.rect.x = x
@@ -251,6 +260,7 @@ class Enemy(pygame.sprite.Sprite):
         if self.health <= 0:
             self.kill()
 
+#sprites from https://0x72.itch.io/dungeontileset-ii
 class Skeleton(Enemy):
     def __init__(self, x, y):
         super().__init__()
@@ -271,7 +281,19 @@ class Skeleton(Enemy):
             image = pygame.transform.scale(image, (70, 70))
             temp.append(image)
         return temp
+    
+    def attack(self, all_EnemyBullets):
+        now = pygame.time.get_ticks()
+        if now - self.attackTimer > 1000:
+            self.attackTimer = now
+            angle = random.uniform(0, math.pi * 2 )
+            all_EnemyBullets.add(Fireball(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, angle, 5, 3, 'Star'))
 
+    def update(self, player, all_Walls, all_EnemyBullets):
+        super().update(player, all_Walls)
+        self.attack(all_EnemyBullets)
+
+#sprites from https://0x72.itch.io/dungeontileset-ii
 class Zombie(Enemy):
     def __init__(self, x, y):
         super().__init__()
@@ -314,8 +336,8 @@ class Zombie(Enemy):
     def update(self, player, all_Walls):
         super().update(player, all_Walls)
         self.attack(player, all_Walls)
-    
 
+#sprites from https://pipoya.itch.io/pipoya-free-rpg-character-sprites-32x32
 class Demon(Enemy):
     states = ['idle', 'attack']
     spriteSheet = SpriteSheet('4dCharSprites/Enemy/Enemy 17-5.png')
@@ -350,12 +372,12 @@ class Demon(Enemy):
         if now - self.attackTimer > 450:
             self.attackTimer = now
 
+    #from https://stackoverflow.com/questions/20044791/how-to-make-an-enemy-follow-the-player-in-pygame
     def trackPlayer(self, player, all_EnemyBullets):
         dx, dy = (player.rect.x  + player.rect.width//2) - (self.rect.x + self.rect.width//2), (player.rect.y + player.rect.width//2) - (self.rect.y + self.rect.width//2)
         dist = math.hypot(dx, dy)
         if dist != 0:
-            dx, dy = dx / dist, dy / dist  # Normalize.
-            # Move along this normalized vector towards the player at current speed.
+            dx, dy = dx / dist, dy / dist 
             self.rect.x += dx * self.vel
             self.rect.y += dy * self.vel
         now = pygame.time.get_ticks()
@@ -487,7 +509,9 @@ class Boss(Enemy):
 # |  _ \|  _ \ / _ \    | | ____/ ___|_   _|_ _| |   | ____/ ___| 
 # | |_) | |_) | | | |_  | |  _|| |     | |  | || |   |  _| \___ \ 
 # |  __/|  _ <| |_| | |_| | |__| |___  | |  | || |___| |___ ___) |
-# |_|   |_| \_\\___/ \___/|_____\____| |_| |___|_____|_____|____/                                                             
+# |_|   |_| \_\\___/ \___/|_____\____| |_| |___|_____|_____|____/  
+ 
+# sprites from https://kicked-in-teeth.itch.io/projectiles                                                           
 class Plasma(pygame.sprite.Sprite):
     spriteSheet = SpriteSheet('AllSprites/projectiles.png')
     def __init__(self, x, y, dx, dy, damage = 2, vel = 6):
@@ -534,6 +558,8 @@ class Bullet(pygame.sprite.Sprite):
         elif self.direction == 'D':
             self.rect.y += self.vel
 
+#sprites from https://kicked-in-teeth.itch.io/projectiles
+# and https://ppeldo.itch.io/2d-pixel-art-game-spellmagic-fx
 class Fireball(pygame.sprite.Sprite):
     spriteSheet = SpriteSheet('AllSprites/Fireball.png')
     spriteSheet2 = SpriteSheet('AllSprites/projectiles.png')
@@ -570,6 +596,7 @@ class Fireball(pygame.sprite.Sprite):
     def draw(self, screen, scrollX, scrollY):
         screen.blit(self.image, (self.rect.x - scrollX, self.rect.y - scrollY, self.rect.width, self.rect.height))
 
+#sprites from https://kicked-in-teeth.itch.io/projectiles
 class HomingBullet(pygame.sprite.Sprite):
     spriteSheet = SpriteSheet('AllSprites/projectiles.png')
     def __init__(self, x, y):
@@ -586,6 +613,7 @@ class HomingBullet(pygame.sprite.Sprite):
         image = HomingBullet.spriteSheet.getImage(98, 32, 11, 16)
         image = pygame.transform.scale(image, (33, 48))
         return image
+
     #from https://stackoverflow.com/questions/20044791/how-to-make-an-enemy-follow-the-player-in-pygame
     def trackPlayer(self, player):
         dx, dy = (player.rect.x  + player.rect.width//2) - (self.rect.x + self.rect.width//2), (player.rect.y + player.rect.width//2) - (self.rect.y + self.rect.width//2)
@@ -602,6 +630,7 @@ class HomingBullet(pygame.sprite.Sprite):
     def draw(self, screen, scrollX, scrollY):
         screen.blit(self.image, (self.rect.x - scrollX, self.rect.y - scrollY, self.rect.width, self.rect.height))
 
+#sprites from https://pipoya.itch.io/pipoya-free-vfx-warp-portal
 class Portal(pygame.sprite.Sprite):
     spriteSheet = SpriteSheet('AllSprites/BluePortal.png')
     spriteSheet2 = SpriteSheet('AllSprites/RedPortal.png')
@@ -766,7 +795,7 @@ class CellularAutomataMap(object):
         self.numSimulation = 6
         self.neighbors = 4
         self.generate(self.width, self.height)
-        self.numEnemies = 10
+        self.numEnemies = 6
     
     def generate(self, width, height):
         self.map = [[0 for y in range(height)] for x in range(width)]
@@ -966,7 +995,7 @@ class Game(object):
     def __init__(self):
         self.screenWidth, self.screenHeight = 1200, 800 
         self.screen = pygame.display.set_mode((self.screenWidth, self.screenHeight)) 
-        pygame.display.set_caption("Tp0")  
+        pygame.display.set_caption("Pixel Quest")  
         self.scrollX = 0
         self.scrollY = 0
         self.scrollMargin = 350
@@ -987,10 +1016,39 @@ class Game(object):
         self.all_Portals = self.gameMap.generatePortals(self.all_Walls)
         pygame.init()
 
+    #image from https://wallup.net/pixel-art-mountains/
+    def startScreen(self):
+        self.screen.fill((128,128,128))
+        bg = pygame.image.load('AllSprites/PixelMountainBG.png')
+        bg = pygame.transform.scale(bg, (self.screenWidth, self.screenHeight))
+        self.screen.blit(bg, (0,0))
+        text = font2.render('PIXEL QUEST', False, (204, 204,0))
+        self.screen.blit(text, (self.screenWidth // 8, self.screenHeight // 6))
+        text = font.render('Press Any Key To Begin', False, (0,0,0))
+        self.screen.blit(text, (self.screenWidth// 4, self.screenHeight // 2))
+        pygame.display.flip()
+        self.waitingForKeyPress()
+    
+    #image form https://wallpapercave.com/game-over-wallpaper
+    def gameOverScreen(self):
+        self.screen.fill((0,0,0))
+        gameOverBg = pygame.image.load('AllSPrites/GameOverBG.jpg')
+        gameOverBg = pygame.transform.scale(gameOverBg, (self.screenWidth, self.screenHeight))
+        self.screen.blit(gameOverBg, (0,0))
+        pygame.display.flip()
+        self.waitingForKeyPress()
+    
+    def waitingForKeyPress(self):
+        waiting = True
+        while waiting:
+            for event in pygame.event.get():
+                if event.type == pygame.KEYUP:
+                    waiting = False
+
     def run(self):
         clock = pygame.time.Clock()
         run = True
-
+        self.startScreen()
         while run:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -1062,12 +1120,17 @@ class Game(object):
                     self.all_Boss = self.gameMap.generateBoss()
 
             self.updateGame()
+            if self.player.health <= 0:
+                run = False
             self.redrawAll()
-
             pygame.display.set_caption(str(clock.get_fps())) 
             clock.tick(60)
+        self.gameOverScreen()
         pygame.quit()
 
+    def drawIcons(self):
+        #if self.player.fireBallTimer
+        pass
 
     def redrawAll(self):
         self.screen.fill((0,0,0))
@@ -1092,7 +1155,7 @@ class Game(object):
     def updateGame(self):
         now = pygame.time.get_ticks()
         for sprite in self.all_Sprites:
-            if type(sprite) == Demon:
+            if type(sprite) == Demon or type(sprite) == Skeleton:
                 sprite.update(self.player, self.all_Walls, self.all_EnemyBullets)
             else:
                 sprite.update(self.player, self.all_Walls)
@@ -1145,5 +1208,5 @@ class Game(object):
             self.scrollY = self.player.rect.y - self.scrollMargin
         if self.player.rect.y > self.scrollY + self.screenHeight - self.scrollMargin - self.player.rect.height:
             self.scrollY = self.player.rect.y - self.screenHeight + self.scrollMargin + self.player.rect.height
-  
-Game().run()
+game = Game()
+game.run()
