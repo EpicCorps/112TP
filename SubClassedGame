@@ -1,10 +1,11 @@
-import pygame, random, math
+import pygame, random, math, pytweening 
 screenWidth, screenHeight = 1200, 800
 screen = pygame.display.set_mode((screenWidth, screenHeight)) 
 font = pygame.font.init()
 font2 = pygame.font.init()
 font = pygame.font.SysFont('comicsans', 70, True)
 font2 = pygame.font.SysFont('comicsans', 100, True)
+
 #   ____ ___  _   _ ____ _____  _    _   _ _____ ____  
 #  / ___/ _ \| \ | / ___|_   _|/ \  | \ | |_   _/ ___| 
 # | |  | | | |  \| \___ \ | | / _ \ |  \| | | | \___ \ 
@@ -141,8 +142,13 @@ class Floor(Tile):
 
 #sprites from https://pipoya.itch.io/pipoya-free-rpg-character-sprites-32x32
 class Player(pygame.sprite.Sprite):
+    shieldSheet = SpriteSheet('AllSprites/shield.png')
     def __init__ (self, x, y, width, height):
         super().__init__()
+        self.shieldSprites = self.loadShieldSprites()
+        self.shieldImage = self.shieldSprites[0] 
+        self.prevTime = 0
+        self.shieldCount = 0
         self.vel = 5
         self.direction = 'D'
         self.walkingRight, self.walkingLeft, self.walkingUp, self.walkingDown = loadSprites('4DCharSprites/female/female 15-1.png', 60, 64)
@@ -155,14 +161,27 @@ class Player(pygame.sprite.Sprite):
         self.attackTimer = 0
         self.fireBallTimer = 0
         self.fireBallOnCD = False
+        self.inventory = []
+        self.selectedItem = None
+         
 
     def draw(self, screen, scrollX, scrollY):
         pygame.draw.rect(screen, (255, 0 ,0), (screenWidth // 15, screenHeight // 15
                                     , 300, 25))
         pygame.draw.rect(screen, (0, 255 ,0), (screenWidth // 15, screenHeight // 15,
                                  300 - ((self.maxHealth - self.health)/self.maxHealth * 300), 25))
+        if not self.selectedItem == None:
+            if self.selectedItem.itemType == 'ShieldStaff':
+                screen.blit(self.shieldImage, (self.rect.x - scrollX - 72, self.rect.y - scrollY - 60, self.rect.width, self.rect.height))
         screen.blit(self.image, (self.rect.x - scrollX, self.rect.y - scrollY, self.rect.width, self.rect.height))
     
+    def loadShieldSprites(self):
+        temp = []
+        for i in range(5):
+            for j in range(4):
+                temp.append(Player.shieldSheet.getImage(i * 192, j * 192, 192, 192))
+        return temp
+
     def takeDamage(self, dmg):
         self.health -= dmg 
         if self.health <= 0:
@@ -203,8 +222,18 @@ class Player(pygame.sprite.Sprite):
         now = pygame.time.get_ticks()
         if now - self.attackTimer > 250:
             self.attackTimer = now
-            all_Bullets.add(Plasma(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, dx, dy, 10, 8))
-          
+            if not self.selectedItem == None:
+                if self.selectedItem.itemType == 'Staff':
+                    all_Bullets.add(PoisonBullet(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, dx, dy, 8, 10))
+                elif self.selectedItem.itemType == 'RandomStaff':
+                    for i in range(4):
+                        angle = random.uniform(0, 2 * math.pi)
+                        all_Bullets.add(Fireball(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, angle, 10, 4, 'Random'))
+                else: 
+                    all_Bullets.add(Plasma(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, dx, dy, 10, 8))
+            else: 
+                all_Bullets.add(Plasma(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, dx, dy, 10, 8))        
+
     def fireBall(self, all_Abilities):
         now = pygame.time.get_ticks()
         if now - self.fireBallTimer > 1500:
@@ -217,7 +246,52 @@ class Player(pygame.sprite.Sprite):
     def setLocation(self, x, y):
         self.rect.x = x
         self.rect.y = y
+    
+    def pickUpItem(self, item):
+        if len(self.inventory) < 3: #at most can have 3 staffs 
+            self.inventory.append(item)
+            item.equiped = True 
+            item.resize(True)
+            self.selectItem(len(self.inventory)) #selects the most recently picked up item
 
+    def dropitem(self):
+        print('drop it')
+        if len(self.inventory) > 0:
+            self.selectedItem.equiped = False
+            self.selectedItem.resize(False)
+            self.selectedItem.rect.y += self.rect.width
+            self.selectedItem.selected = False
+            self.inventory.remove(self.selectedItem)
+            if len(self.inventory) > 0:
+                self.selectedItem = self.inventory[0]
+                self.selectedItem.selected = True
+            else:
+                self.selectedItem = None
+
+    #changes the selected item when the users press a number key
+    def selectItem(self, slotNumber):
+        if not len(self.inventory) == 0:
+            slotNumber -= 1
+            if self.selectedItem != None:
+                self.selectedItem.selected = False
+            self.selectedItem = self.inventory[slotNumber % len(self.inventory)]
+            self.selectedItem.selected = True
+
+    def update(self):
+        if self.selectedItem != None:
+            if self.selectedItem.itemType == 'SpeedStaff':
+                    self.vel = 8
+            elif self.selectedItem.itemType == 'ShieldStaff':
+                now = pygame.time.get_ticks()
+                if now - self.prevTime > 75:
+                    self.prevTime = now
+                    self.shieldCount += 1
+                    self.shieldImage = self.shieldSprites[self.shieldCount % len(self.shieldSprites)]
+                self.vel = 5
+            else:
+                self.vel = 5
+            
+        
 #  _____ _   _ _____ __  __ ___ _____ ____  
 # | ____| \ | | ____|  \/  |_ _| ____/ ___| 
 # |  _| |  \| |  _| | |\/| || ||  _| \___ \ 
@@ -232,6 +306,9 @@ class Enemy(pygame.sprite.Sprite):
         self.maxHealth = 10
         self.damage = 10 
         self.attackTimer = 0
+        self.poisoned = False
+        self.poisonTimer = 15000
+        self.pTimer = 0
 
     def hitWall(self, wallGroup):
         return pygame.sprite.spritecollide(self, wallGroup, False) != []
@@ -249,8 +326,18 @@ class Enemy(pygame.sprite.Sprite):
         
     def move(self, all_Walls):
         pass 
+    
+    #drops an random item when dead
+    def randomDrop(self, all_Items):
+        if random.uniform(0, 1) > 0.8:
+            choice = random.choice(Item.itemTypes)
+            Item(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, choice, all_Items)
+    
+    def poison(self):
+        self.poisoned = True
+        self.poisonTimer = 100
 
-    def update(self, player, all_Walls):
+    def update(self, player, all_Walls, all_Items):
         now = pygame.time.get_ticks()
         if now - self.prevTime > 75:
             self.prevTime = now
@@ -258,7 +345,9 @@ class Enemy(pygame.sprite.Sprite):
             self.image = self.idleAnimation[self.idleCount % len(self.idleAnimation)]      
         self.move(all_Walls)
         if self.health <= 0:
+            self.randomDrop(all_Items)
             self.kill()
+    
 
 #sprites from https://0x72.itch.io/dungeontileset-ii
 class Skeleton(Enemy):
@@ -289,9 +378,17 @@ class Skeleton(Enemy):
             angle = random.uniform(0, math.pi * 2 )
             all_EnemyBullets.add(Fireball(self.rect.x + self.rect.width//2, self.rect.y + self.rect.height//2, angle, 5, 3, 'Star'))
 
-    def update(self, player, all_Walls, all_EnemyBullets):
-        super().update(player, all_Walls)
+    def update(self, player, all_Walls, all_EnemyBullets, all_Items):
+        super().update(player, all_Walls, all_Items)
         self.attack(all_EnemyBullets)
+        if self.poisoned: 
+            if self.poisonTimer <= 0:
+                self.poisoned = False
+            now = pygame.time.get_ticks()
+            if now - self.pTimer > 200:
+                self.pTimer = now
+                self.health -= 2
+            self.poisonTimer -= 1
 
 #sprites from https://0x72.itch.io/dungeontileset-ii
 class Zombie(Enemy):
@@ -333,9 +430,17 @@ class Zombie(Enemy):
                 player.takeDamage(self.damage)
                 player.move(0, 40, all_Walls)
     
-    def update(self, player, all_Walls):
-        super().update(player, all_Walls)
+    def update(self, player, all_Walls, all_Items):
+        super().update(player, all_Walls, all_Items)
         self.attack(player, all_Walls)
+        if self.poisoned: 
+                if self.poisonTimer <= 0:
+                    self.poisoned = False
+                now = pygame.time.get_ticks()
+                if now - self.pTimer > 200:
+                    self.pTimer = now
+                    self.health -= 2
+                self.poisonTimer -= 1
 
 #sprites from https://pipoya.itch.io/pipoya-free-rpg-character-sprites-32x32
 class Demon(Enemy):
@@ -394,10 +499,9 @@ class Demon(Enemy):
         else:
             self.state = 'idle'
 
-    def update(self, player, all_Walls, all_EnemyBullets):
+    def update(self, player, all_Walls, all_EnemyBullets, all_Items):
         self.checkState(player)
         if self.state == 'Attack':
-            # self.attack(all_EnemyBullets)
             self.trackPlayer(player, all_EnemyBullets)
         now = pygame.time.get_ticks()
         if now - self.prevTime > 75:
@@ -405,15 +509,24 @@ class Demon(Enemy):
             self.idleCount += 1
             self.image = self.idleAnimation[self.idleCount % len(self.idleAnimation)]      
         if self.health <= 0:
+            self.randomDrop(all_Items)
             self.kill()
+        if self.poisoned: 
+            if self.poisonTimer <= 0:
+                self.poisoned = False
+            now = pygame.time.get_ticks()
+            if now - self.pTimer > 200:
+                self.pTimer = now
+                self.health -= 2
+            self.poisonTimer -= 1
         
 #sprite from https://uilleaggodwin.itch.io/roguelike-dungeon-asset-bundle
 class Boss(Enemy):
     states = ['Burst', 'Track', 'Idle', 'Homing']
     def __init__(self, x, y):
         super().__init__()
-        self.health = 250
-        self.maxHealth = 250
+        self.health = 500
+        self.maxHealth = 500
         self.animation = self.loadAnimation()
         self.image = self.animation[0]
         self.rect = self.image.get_rect()
@@ -501,9 +614,71 @@ class Boss(Enemy):
                 self.shootHomingBullets(all_EnemyBullets)
         elif self.state == 'Idle':
             pass 
+        if self.poisoned: 
+            if self.poisonTimer <= 0:
+                self.poisoned = False
+            now = pygame.time.get_ticks()
+            if now - self.pTimer > 200:
+                self.pTimer = now
+                self.health -= 2
+            self.poisonTimer -= 1
         if self.health <= 0:
             self.kill()
 
+#images from https://beyonderboy.itch.io/32x32-in-game-items-asset-pack
+class Item(pygame.sprite.Sprite):
+    images = {'Health': 'AllSprites/HealthPot.png', 'Staff': 'AllSprites/staff3.png'
+                ,'RandomStaff': 'AllSprites/staff2.png', 'SpeedStaff': 'AllSprites/staff.png',
+                'ShieldStaff': 'AllSprites/staff4.png'}
+    itemTypes = ['Health', 'Staff', 'RandomStaff', 'SpeedStaff', 'ShieldStaff']
+    bobRange = 15
+    bobSpeed = 0.4
+    def __init__(self, x, y, itemType, group):
+        super().__init__()
+        self.image = pygame.image.load(Item.images[itemType])
+        self.image = pygame.transform.scale(self.image, (64, 32))
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.type = itemType
+        self.tween = pytweening.easeInOutSine
+        self.direction = 1
+        self.step = 0
+        self.itemType = itemType
+        group.add(self) #should add the spawned items into Group
+        self.equiped = False
+        self.selected = False
+    
+    # def update(self):
+    #     offset = Item.bobRange * (self.tween(self.step/Item.bobRange) - 0.5)
+    #     print(f"{offset * self.direction}")
+    #     self.rect.y += (offset * self.direction)
+    #     self.step += Item.bobSpeed
+    #     if self.step > Item.bobRange:
+    #         self.step = 0
+    #         self.direction *= -1 
+
+    def update(self, player):
+        if self.equiped:
+            self.rect.x = player.rect.x
+            self.rect.y = player.rect.y + player.rect.height // 2
+    
+    #resizes the sprite when it is picked up by player, takes one boolean 
+    #to resize up or down
+    def resize(self, reduce):
+        if reduce:
+            #self.image = pygame.transform.scale(self.image, (2 * self.rect.width//3, 2 * self.rect.height // 3))
+            self.rect.width //= 2
+            self.rect.height //= 2
+        else:
+            #self.image = pygame.transform.scale(self.image, ( 3* self.rect.width//2, 3*self.rect.height //2))
+            self.rect.width *= 2
+            self.rect.height *= 2
+
+    def draw(self, screen, scrollX, scrollY):
+        if (not(self.equiped) or (self.equiped and self.selected)):
+            screen.blit(self.image, (self.rect.x - scrollX, self.rect.y - scrollY, self.rect.width, self.rect.height))
+        
 
 #  ____  ____   ___      _ _____ ____ _____ ___ _     _____ ____  
 # |  _ \|  _ \ / _ \    | | ____/ ___|_   _|_ _| |   | ____/ ___| 
@@ -531,6 +706,15 @@ class Plasma(pygame.sprite.Sprite):
     
     def draw(self, screen, scrollX, scrollY):
         screen.blit(self.image, (self.rect.x - scrollX, self.rect.y - scrollY, self.rect.width, self.rect.height))
+
+class PoisonBullet(Plasma):
+    def __init__(self, x, y, dx, dy, damage = 4, vel = 8):
+        super().__init__(x, y, dx, dy, damage, vel)
+        self.image = Plasma.spriteSheet.getImage(160, 16, 16, 16)
+        self.image = pygame.transform.scale(self.image, (32, 32))
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
 
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, x, y, width, height, direction):
@@ -583,6 +767,9 @@ class Fireball(pygame.sprite.Sprite):
         elif self.element == 'Star':
             image = Fireball.spriteSheet2.getImage(64, 64, 15, 15)
             image = pygame.transform.scale(image, (45, 45))
+        elif self.element == 'Random':
+            image = Fireball.spriteSheet2.getImage(192, 16, 16, 16)
+            image = pygame.transform.scale(image, (32, 32))
         else:
             image = Fireball.spriteSheet.getImage(21, 23, 28, 16)
             image = pygame.transform.scale(image, (56, 32))
@@ -669,7 +856,6 @@ class Portal(pygame.sprite.Sprite):
             self.animationCount += 1
             self.image = self.animation[self.animationCount % len(self.animation)]
     
-
 #  __  __    _    ____     ____ _____ _   _ _____ ____      _  _____ ___  ____  
 # |  \/  |  / \  |  _ \   / ___| ____| \ | | ____|  _ \    / \|_   _/ _ \|  _ \ 
 # | |\/| | / _ \ | |_) | | |  _|  _| |  \| |  _| | |_) |  / _ \ | || | | | |_) |
@@ -792,7 +978,7 @@ class CellularAutomataMap(object):
         self.width = 30
         self.height = 30
         self.wallProb = 0.4
-        self.numSimulation = 6
+        self.numSimulation = 5
         self.neighbors = 4
         self.generate(self.width, self.height)
         self.numEnemies = 6
@@ -923,6 +1109,15 @@ class CellularAutomataMap(object):
             if pygame.sprite.spritecollide(portal, all_Walls, False) != []:
                 portal.kill()
         return temp
+    
+    def placeItems(self, all_Items):
+        temp = pygame.sprite.Group()
+        for i in range(5):
+            x, y = self.randomPoint()
+            choice = random.choice(Item.itemTypes)
+            temp.add(Item(x, y, choice, all_Items))
+        return temp
+
 
 class RoomMap(object):
     def __init__(self):
@@ -1007,13 +1202,17 @@ class Game(object):
         self.all_Tiles = pygame.sprite.Group()
         self.all_EnemyBullets = pygame.sprite.Group()
         self.all_Boss = pygame.sprite.Group()
+        self.all_Items = pygame.sprite.Group()
 
         self.gameMap = CellularAutomataMap()
         self.all_Tiles, self.all_Walls = self.gameMap.getGroup()
         playerX, playerY = self.gameMap.randomPoint()
         self.player = Player(playerX, playerY, 60, 64)
+        #test
+        Item(playerX, playerY, 'ShieldStaff', self.all_Items)
         self.all_Sprites = self.gameMap.generateEnemies(self.all_Walls)
         self.all_Portals = self.gameMap.generatePortals(self.all_Walls)
+        self.gameMap.placeItems(self.all_Items)
         pygame.init()
 
     #image from https://wallup.net/pixel-art-mountains/
@@ -1038,16 +1237,27 @@ class Game(object):
         pygame.display.flip()
         self.waitingForKeyPress()
     
+    def winScreen(self):
+        self.screen.fill((0,0,0))
+        winBg = pygame.image.load('AllSprites/win.png')
+        winBg = pygame.transform.scale(winBg, (self.screenWidth, self.screenHeight))
+        self.screen.blit(winBg, (0,0))
+        text = font.render('YOU COMPLETED THE QUEST', False, (204, 204,0))
+        self.screen.blit(text, (self.screenWidth // 8, self.screenHeight // 2))
+        pygame.display.flip()
+        self.waitingForKeyPress()
+    
     def waitingForKeyPress(self):
         waiting = True
         while waiting:
             for event in pygame.event.get():
-                if event.type == pygame.KEYUP:
+                if event.type == pygame.KEYUP or event.type == pygame.QUIT:
                     waiting = False
 
     def run(self):
         clock = pygame.time.Clock()
         run = True
+        win = False
         self.startScreen()
         while run:
             for event in pygame.event.get():
@@ -1055,20 +1265,29 @@ class Game(object):
                     run = False
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_f: self.player.fireBall(self.all_Abilities)
+                    elif event.key == pygame.K_x: 
+                        self.player.dropitem()
+                    elif event.key == pygame.K_1:
+                        self.player.selectItem(1)
+                    elif event.key == pygame.K_2:
+                        self.player.selectItem(2)
+                    elif event.key == pygame.K_3:
+                        self.player.selectItem(3)
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     pos = pygame.mouse.get_pos()
                     self.player.shoot(pos, self.all_Bullets, self.scrollX, self.scrollY,)
 
             #check key events
             keys = pygame.key.get_pressed()
+            vel = self.player.vel
             if keys[pygame.K_a]:
-                self.player.move(-5, 0, self.all_Walls)
+                self.player.move(-vel, 0, self.all_Walls)
             elif keys[pygame.K_d]:
-                self.player.move(5, 0, self.all_Walls)
+                self.player.move(vel, 0, self.all_Walls)
             elif keys[pygame.K_w]:
-                self.player.move(0, -5, self.all_Walls)
+                self.player.move(0, -vel, self.all_Walls)
             elif keys[pygame.K_s]:
-                self.player.move(0, 5, self.all_Walls)
+                self.player.move(0, vel, self.all_Walls)
             elif keys[pygame.K_r]:
                 self.gameMap = GameMap()
                 playerX, playerY = self.gameMap.startingPoint
@@ -1096,6 +1315,9 @@ class Game(object):
                 self.all_Portals.empty()
                 self.all_Boss.empty()
                 self.all_EnemyBullets.empty()
+                for item in self.all_Items:
+                    if item.equiped == False:
+                        item.kill()
                 if portals[0].sendLocation == 'Level1':
                     self.gameMap = GameMap()
                     playerX, playerY = self.gameMap.startingPoint
@@ -1114,7 +1336,6 @@ class Game(object):
                     self.gameMap = RoomMap()
                     self.all_Tiles, self.all_Walls = self.gameMap.getGroup()
                     playerX, playerY = self.gameMap.startingPoint
-                    self.player = Player(playerX, playerY, 60, 64)
                     self.all_Tiles, self.all_Walls = self.gameMap.getGroup()
                     self.player.setLocation(playerX, playerY)
                     self.all_Boss = self.gameMap.generateBoss()
@@ -1122,10 +1343,16 @@ class Game(object):
             self.updateGame()
             if self.player.health <= 0:
                 run = False
+            if type(self.gameMap) == RoomMap and len(self.all_Boss) == 0:
+                win = True
+                run = False
             self.redrawAll()
             pygame.display.set_caption(str(clock.get_fps())) 
             clock.tick(60)
-        self.gameOverScreen()
+        if win == True:
+            self.winScreen()
+        else:
+            self.gameOverScreen()
         pygame.quit()
 
     def drawIcons(self):
@@ -1150,15 +1377,17 @@ class Game(object):
         for sprite in self.all_EnemyBullets:
             sprite.draw(self.screen, self.scrollX, self.scrollY)
         self.player.draw(self.screen, self.scrollX, self.scrollY)
+        for sprite in self.all_Items:
+            sprite.draw(self.screen, self.scrollX, self.scrollY)
         pygame.display.update()
 
     def updateGame(self):
         now = pygame.time.get_ticks()
         for sprite in self.all_Sprites:
             if type(sprite) == Demon or type(sprite) == Skeleton:
-                sprite.update(self.player, self.all_Walls, self.all_EnemyBullets)
+                sprite.update(self.player, self.all_Walls, self.all_EnemyBullets, self.all_Items)
             else:
-                sprite.update(self.player, self.all_Walls)
+                sprite.update(self.player, self.all_Walls, self.all_Items)
         for sprite in self.all_Boss:
             sprite.update(self.player, self.all_EnemyBullets)
         for sprite in self.all_EnemyBullets:
@@ -1167,9 +1396,12 @@ class Game(object):
                 if sprite.liveTime > 200: sprite.kill()
             else:
                 sprite.update()
+        for sprite in self.all_Items:
+            sprite.update(self.player)
         self.all_Bullets.update()
         self.all_Abilities.update()
         self.all_Portals.update()
+        self.player.update()
 
     def gameCollisions(self):
         #bullet collision 
@@ -1179,10 +1411,14 @@ class Game(object):
         for enemySprite, bulletList in hit.items():
             for item in bulletList:
                 enemySprite.health -= item.damage
+                if type(item) == PoisonBullet:
+                    enemySprite.poison()
         hit = pygame.sprite.groupcollide(self.all_Boss, self.all_Bullets, False, True)
         for enemySprite, bulletList in hit.items():
             for item in bulletList:
                 enemySprite.health -= item.damage
+                if type(item) == PoisonBullet:
+                    enemySprite.poison()
         #abilities collision
         pygame.sprite.groupcollide(self.all_Abilities, self.all_Walls, True, False)
         hit = pygame.sprite.groupcollide(self.all_Sprites, self.all_Abilities, False, True)
@@ -1197,6 +1433,14 @@ class Game(object):
         hit = pygame.sprite.spritecollide(self.player, self.all_EnemyBullets, True)
         for item in hit:
             self.player.takeDamage(item.damage)
+        #item/player collision
+        hit = pygame.sprite.spritecollide(self.player, self.all_Items, False)
+        for item in hit:
+            if item.itemType == 'Health' and self.player.health < self.player.maxHealth:
+                item.kill()
+                self.player.health += 20 
+            elif item.equiped == False:
+                self.player.pickUpItem(item)
 
     def checkScroll(self):
         if self.player.rect.x - self.scrollX < self.scrollMargin:
